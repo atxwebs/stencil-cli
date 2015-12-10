@@ -1,0 +1,54 @@
+{
+  "name": "stencil-cli",
+  "version": "0.3.1",
+  "description": "CLI tool to run Bigcommerce Stores locally for theme development.",
+  "main": "index.js",
+  "scripts": {
+    "test": "lab -t 90 -e 'development'",
+    "test-cov-html": "lab -r html -o coverage.html"
+  },
+  "bin": {
+    "stencil": "./bin/stencil",
+    "stencil-start": "./bin/stencil-start",
+    "stencil-init": "./bin/stencil-init"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atxwebs/stencil-cli"
+  },
+  "author": "Bigcommerce",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/atxwebs/stencil-cli/issues"
+  },
+  "homepage": "https://github.com/atxwebs/stencil-cli",
+  "dependencies": {
+    "accept-language-parser": "^1.0.2",
+    "async": "^0.9.0",
+    "autoprefixer-core": "^5.1.11",
+    "boom": "^2.7.0",
+    "browser-sync": "^2.6.4",
+    "colors": "^1.0.3",
+    "commander": "^2.7.1",
+    "confidence": "^1.0.0",
+    "front-matter": "^1.0.0",
+    "glue": "^2.0.0",
+    "good": "^5.1.2",
+    "good-console": "^4.1.0",
+    "hapi": "^8.4.0",
+    "hoek": "^2.12.0",
+    "inquirer": "^0.8.2",
+    "install": "^0.1.8",
+    "less": "^2.5.0",
+    "lodash": "^3.9.0",
+    "node-sass": "^3.0.0",
+    "npm": "^2.7.5",
+    "stencil-paper": "git+ssh://git@github.com:atxwebs/paper",
+    "wreck": "^5.4.0"
+  },
+  "devDependencies": {
+    "code": "^1.4.0",
+    "lab": "^5.5.1",
+    "sinon": "^1.14.1"
+  }
+}

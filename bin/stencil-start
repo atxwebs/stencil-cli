@@ -1,0 +1,259 @@
+#!/usr/bin/env node
+
+require('colors');
+
+var Autoprefixer = require('autoprefixer-core'),
+    Bs = require('browser-sync').create(),
+    Fs = require('fs'),
+    Path = require('path'),
+    Pkg = require('../package.json'),
+    Program = require('commander'),
+    Server = require('../server'),
+    Sass = require('node-sass'),
+    Less = require('less'),
+    allowedCssCompilers = ['scss', 'less', 'css'],
+    autoprefixerProcessor,
+    browserSyncPort,
+    cssCompilerDir,
+    cssDestPath = process.cwd() + '/assets/css-artifacts/',
+    cssWatchBaseDir = process.cwd() + '/assets/',
+    dotStencilFilePath = './.stencil',
+    dotStencilFileExists = Fs.existsSync(dotStencilFilePath),
+    dotStencilFile,
+    themeConfig = require(process.cwd() + '/config.json'),
+    stencilServerPort;
+
+Program
+    .version(Pkg.version)
+    .option('-o, --open', 'Automatically open default browser')
+    .parse(process.argv);
+
+if (! dotStencilFileExists) {
+    console.log('Please run "stencil init" first.');
+} else {
+
+    dotStencilFile = Fs.readFileSync(dotStencilFilePath, {encoding: 'utf-8'});
+    dotStencilFile = JSON.parse(dotStencilFile);
+    themeConfig.css_compiler = themeConfig.css_compiler || 'css';
+    themeConfig.autoprefixer_cascade = themeConfig.autoprefixer_cascade || true;
+    themeConfig.autoprefixer_browsers = themeConfig.autoprefixer_browsers || ['> 5% in US'];
+
+    if (allowedCssCompilers.indexOf(themeConfig.css_compiler) === -1) {
+        console.error('Only %s are allowed as CSS Compilers'.red, allowedCssCompilers.join(', '));
+
+        return;
+    }
+
+    browserSyncPort = dotStencilFile.port;
+    stencilServerPort = ++dotStencilFile.port;
+    cssCompilerDir = cssWatchBaseDir + themeConfig.css_compiler;
+    autoprefixerProcessor = Autoprefixer({
+        browsers: themeConfig.autoprefixer_browsers,
+        cascade: themeConfig.autoprefixer_cascade
+    });
+
+    Server(dotStencilFile, function(err) {
+        if (err) {
+            throw err;
+        }
+
+        /**
+         * Watch the appropriate css directory based on which compiler was chosen.
+         * This will run on each file (and files in sub-directories) when the server starts
+         * up. We only want to run compilation on top level files as the ones in sub directories
+         * are most likely include files and pull be pulled in by the top level files.
+         *
+         * When a file in a sub directory changes, we have to recompile all top level files because
+         * more than one could have included the changed file.
+         *
+         * This behaviour is a bit different for just plain CSS files, so they will always
+         * be compiled and copied across.
+         */
+        Bs.watch(cssCompilerDir, function(event, file) {
+            var relativePath,
+                shouldCompileRegex = /^(?!_).+\.(?:scss|less)$/;
+
+            if (event === 'add' || event === 'change') {
+                relativePath = Path.relative(cssCompilerDir, file);
+                // Only run it through if it's not a file in a sub directory or we are only doing plain CSS
+                if ((! relativePath.match(/\//) && shouldCompileRegex.test(relativePath)) || themeConfig.css_compiler === 'css') {
+                    compileCss(themeConfig.css_compiler, file);
+                // Only re-compile top level files if this is a change event and it's in a sub directory
+                } else if (event === 'change') {
+                    Fs.readdirSync(cssCompilerDir, cssCompiler).filter(function(file) {
+                        return shouldCompileRegex.test(file);
+                    }).forEach(function(file) {
+                        compileCss(themeConfig.css_compiler, Path.join(cssCompilerDir, file));
+                    });
+                }
+            }
+        });
+
+        Bs.init({
+            open: !! Program.open,
+            port: browserSyncPort,
+            files: [
+                '/assets',
+                '/templates',
+                '/lang'
+            ].map(function(val) {
+                return process.cwd() + val;
+            }),
+            watchOptions: {
+                ignoreInitial: true,
+                ignored: [
+                    '/assets/scss',
+                    '/assets/less',
+                    '/assets/css',
+                    '/assets/jspm_packages'
+                ].map(function(val) {
+                    return process.cwd() + val;
+                })
+            },
+            proxy: "localhost:" + stencilServerPort
+        });
+
+        // Handle manual reloading of browsers by typing 'rs';
+        // Borrowed from https://github.com/remy/nodemon
+        process.stdin.resume();
+        process.stdin.setEncoding('utf8');
+        process.stdin.on('data', function (data) {
+            data = (data + '').trim().toLowerCase();
+
+            // if the keys entered match the restartable value, then restart!
+            if (data === 'rs') {
+                Bs.reload();
+            }
+        });
+    });
+}
+
+/**
+ * Compiles SCSS, LESS and copies the artifacts to the "css-artifacts"
+ * folder.  It will also copy plain CSS to the folder as well.
+ *
+ * @param compiler
+ * @param file
+ */
+function compileCss(compiler, file) {
+    if (! file.match(/\.(?:scss|less|css)$/)) {
+        return;
+    }
+
+    // Check to make sure the css-artifacts directory exists
+    try {
+        Fs.statSync(cssDestPath);
+    } catch(e) {
+        Fs.mkdirSync(cssDestPath);
+    }
+
+    switch (compiler) {
+        case 'scss':
+            scssCompiler(file, writeCss);
+            break;
+        case 'less':
+
+            lessCompiler(file, writeCss);
+            break;
+        case 'css':
+            cssCompiler(file, writeCss);
+            break;
+    }
+}
+
+/**
+ * Takes content, file source/dest info, and a sourceMap, runs it through Autoprefixer, and then saves the file.
+ * @param err
+ * @param data
+ */
+function writeCss(err, data) {
+    var css;
+
+    if (err) {
+        return console.error(err);
+    }
+
+    css = autoprefixerProcessor.process(data.content, {
+            from: data.source,
+            to: data.dest,
+            map: {
+                prev: data.sourceMap
+            }
+        }).css;
+
+    Fs.writeFileSync(data.dest, css);
+}
+
+/**
+ * Compile SCSS into artifacts folder
+ *
+ * @param file
+ * @param callback
+ */
+function scssCompiler(file, callback) {
+    var dest = cssDestPath + Path.basename(file, '.scss') + '.css';
+
+    Sass.render({
+        file: file,
+        outFile: dest,
+        sourceMap: true,
+        sourceMapEmbed: true
+    }, function (err, result) {
+        if (err) {
+            return callback('SASS Error: '.red + err.message + ' at ' + (err.file + '@' + err.line + ':' + err.column).cyan);
+        }
+
+        callback(null, {
+            content: result.css,
+            source: file,
+            dest: dest,
+            sourceMap: result.map.mappings
+        });
+    });
+}
+
+/**
+ * Compile LESS into artifacts folder
+ *
+ * @param file
+ * @param callback
+ */
+function lessCompiler(file, callback) {
+    var content = Fs.readFileSync(file, {encoding: 'utf-8'}),
+        dest = cssDestPath + Path.basename(file, '.less') + '.css',
+        option = {
+            filename: file,
+            compress: false,
+            sourceMap: {
+                sourceMapFileInline: true
+            }
+        };
+
+    Less.render(content, option).then(function(result) {
+        callback(null, {
+            content: result.css,
+            source: file,
+            dest: dest,
+            sourceMap: result.map
+        });
+    }, function(err) {
+        callback('LESS Error: '.red + err.message + ' at ' + (err.filename + '@' + err.line + ':' + err.column).cyan);
+    });
+}
+
+/**
+ * Copy CSS to artifacts folder
+ *
+ * @param file
+ * @param callback
+ */
+function cssCompiler(file, callback) {
+    var dest = cssDestPath + Path.basename(file);
+
+    callback(null, {
+        content: Fs.readFileSync(file, {encoding: 'utf-8'}),
+        source: file,
+        dest: dest,
+        sourceMap: null
+    });
+}

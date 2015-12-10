@@ -1,0 +1,59 @@
+#!/usr/bin/env node
+
+var Fs = require('fs'),
+    Inquirer = require('inquirer'),
+    Program = require('commander'),
+    pkg = require('../package.json'),
+    dotStencilFilePath = './.stencil',
+    dotStencilFileExists = Fs.existsSync(dotStencilFilePath),
+    dotStencilFile;
+
+Program
+    .version(pkg.version)
+    .parse(process.argv);
+
+if (dotStencilFileExists) {
+    dotStencilFile = Fs.readFileSync(dotStencilFilePath, {encoding: 'utf-8'});
+    dotStencilFile = JSON.parse(dotStencilFile);
+}
+
+var questions = [
+    {
+        type: 'input',
+        name: 'storeUrl',
+        message: 'What is your secure (https://) test store URL?',
+        validate: function(val) {
+            if (/^https:\/\//.test(val)) {
+                return true;
+            } else {
+                return 'You must enter a URL that starts with "https://"';
+            }
+        },
+        default: dotStencilFile && dotStencilFile.storeUrl || undefined
+    },
+    {
+        type: 'input',
+        name: 'port',
+        message: 'What port would you like to run the server on?',
+        default: dotStencilFile && dotStencilFile.port || 3000,
+        validate: function(val) {
+            if (isNaN(val)) {
+                return 'You must enter an integer';
+            } else if (val < 1024 || val > 65535) {
+                return 'The port number must be between 1025 and 65535';
+            } else {
+                return true;
+            }
+        }
+    }
+];
+
+Inquirer.prompt(questions, function(answers) {
+    Fs.writeFile(dotStencilFilePath, JSON.stringify(answers, null, 2), function(err) {
+        if (err) {
+            throw err;
+        }
+
+        console.log('You are now ready to go! To start developing, run $ stencil start');
+    });
+});
